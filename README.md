@@ -41,10 +41,15 @@ npm test      # runs the test suite
 
 ## Release process (Chrome Web Store)
 
-Packaging and publishing are automated via `.github/workflows/release.yml`, triggered by pushing a
-`vX.Y.Z` tag that matches the `version` in `manifest.json`. The workflow runs the tests, zips the
-extension (`npm run package` → `dist/auto-tab-sort.zip`), uploads and publishes the new version to
-the Chrome Web Store, then attaches the zip to a GitHub Release.
+Packaging is automated via `.github/workflows/release.yml`, triggered by pushing a `vX.Y.Z` tag
+that matches the `version` in `manifest.json`. The workflow runs the tests, zips the extension
+(`npm run package` → `dist/auto-tab-sort.zip`) and attaches it to a GitHub Release.
+
+**Currently, publishing to the Chrome Web Store is done manually** via the
+[Developer Dashboard](https://chrome.google.com/webstore/devconsole): download the zip from the
+tag's GitHub Release (or run `npm run package` locally) and upload it as a new package version.
+The workflow's Chrome Web Store upload step is skipped automatically as long as the `CWS_*` secrets
+below aren't configured — see the one-time setup if you want to switch to automatic publishing later.
 
 To cut a release:
 
