@@ -29,19 +29,42 @@ export function findDuplicateGroups(tabs) {
 
 // Le premier onglet rencontré pour une URL (l'ordre de `win.tabs`, donc l'ordre réel des
 // onglets) est conservé comme original ; les autres sont fermés comme doublons.
-export async function dedupeTabs(tabs) {
+//
+// L'original est réactivé AVANT que le doublon actif ne soit fermé, pas après : si le
+// doublon fermé n'est plus l'onglet actif au moment de sa fermeture, Chrome ne déclenche
+// jamais sa propre réassignation native de l'onglet actif. Dans l'autre ordre, cette
+// réassignation native peut entrer en course avec notre chrome.tabs.update et la gagner
+// (observé notamment quand le doublon actif provient d'une navigation en place d'un onglet
+// existant — ex. clic sur un favori — plutôt que de la création d'un nouvel onglet).
+//
+// createdTabIds (onglets créés depuis le dernier passage de tri, cf. runSort) couvre le cas
+// où un favori est ouvert en arrière-plan (ex. Cmd+clic) : le nouvel onglet, doublon, n'est
+// jamais actif, mais son ouverture reste une action explicite de l'utilisateur — le groupe
+// doit donc, lui aussi, se retrouver sélectionné, même si l'onglet conservé n'est pas celui
+// qui vient d'être créé.
+export async function dedupeTabs(tabs, createdTabIds = new Set()) {
   const closedIds = new Set();
-  let reactivate = null;
+  let reactivateId = null;
 
   for (const group of findDuplicateGroups(tabs)) {
     const [original, ...duplicates] = group;
+    const groupIsUserTriggered =
+      createdTabIds.has(original.id) || duplicates.some((tab) => tab.active || createdTabIds.has(tab.id));
     for (const tab of duplicates) {
       closedIds.add(tab.id);
-      if (tab.active) reactivate = original.id;
     }
+    if (groupIsUserTriggered) reactivateId = original.id;
   }
 
   if (closedIds.size === 0) return tabs;
+
+  if (reactivateId !== null) {
+    try {
+      await chrome.tabs.update(reactivateId, { active: true });
+    } catch (err) {
+      console.warn('auto-tab-sort: failed to focus the deduplicated tab', err);
+    }
+  }
 
   try {
     await chrome.tabs.remove([...closedIds]);
@@ -50,20 +73,15 @@ export async function dedupeTabs(tabs) {
     return tabs;
   }
 
-  if (reactivate !== null) {
-    try {
-      await chrome.tabs.update(reactivate, { active: true });
-    } catch (err) {
-      console.warn('auto-tab-sort: failed to focus the deduplicated tab', err);
-    }
-  }
-
   return tabs.filter((t) => !closedIds.has(t.id));
 }
 
 let sortTimeout = null;
 let isSorting = false;
 let sortAgain = false;
+// Onglets créés depuis le dernier passage de tri effectif. Réinitialisé à chaque exécution
+// de runSort (pas de nettoyage séparé nécessaire : un id n'y reste jamais plus d'un cycle).
+let pendingCreatedTabIds = new Set();
 
 export function scheduleSort() {
   clearTimeout(sortTimeout);
@@ -76,8 +94,10 @@ export async function runSort() {
     return;
   }
   isSorting = true;
+  const createdTabIds = pendingCreatedTabIds;
+  pendingCreatedTabIds = new Set();
   try {
-    await sortAllWindows();
+    await sortAllWindows(createdTabIds);
   } finally {
     isSorting = false;
   }
@@ -87,11 +107,11 @@ export async function runSort() {
   }
 }
 
-export async function sortAllWindows() {
+export async function sortAllWindows(createdTabIds = new Set()) {
   const windows = await chrome.windows.getAll({ populate: true, windowTypes: ['normal'] });
   for (const win of windows) {
     try {
-      await sortWindow(win);
+      await sortWindow(win, createdTabIds);
     } catch (err) {
       console.warn(`auto-tab-sort: failed to sort window ${win.id}`, err);
     }
@@ -109,7 +129,7 @@ export async function setManagedGroups(windowId, map) {
   await chrome.storage.session.set({ [key]: map });
 }
 
-export async function sortWindow(win) {
+export async function sortWindow(win, createdTabIds = new Set()) {
   const existingGroups = await chrome.tabGroups.query({ windowId: win.id });
   const existingGroupIds = new Set(existingGroups.map((g) => g.id));
 
@@ -148,7 +168,7 @@ export async function sortWindow(win) {
     if (t.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE && !knownGroupIds.has(t.groupId)) return false;
     return true;
   });
-  const tabs = await dedupeTabs(eligibleTabs);
+  const tabs = await dedupeTabs(eligibleTabs, createdTabIds);
 
   const byDomain = new Map();
   const singles = [];
@@ -211,7 +231,18 @@ export async function sortWindow(win) {
   await setManagedGroups(win.id, managedGroups);
 }
 
-chrome.tabs.onCreated.addListener(scheduleSort);
+// Chrome n'active pas par défaut un onglet ouvert en arrière-plan (ex. Cmd+clic sur un
+// favori, Ctrl+clic sur un lien) : on force le focus sur tout nouvel onglet, quelle que soit
+// son origine. Ce choix assumé prime sur la convention native "arrière-plan" du navigateur.
+chrome.tabs.onCreated.addListener((tab) => {
+  pendingCreatedTabIds.add(tab.id);
+  scheduleSort();
+  if (!tab.active) {
+    chrome.tabs.update(tab.id, { active: true }).catch((err) => {
+      console.warn('auto-tab-sort: failed to focus newly created tab', err);
+    });
+  }
+});
 chrome.tabs.onRemoved.addListener(scheduleSort);
 chrome.tabs.onAttached.addListener(scheduleSort);
 chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {

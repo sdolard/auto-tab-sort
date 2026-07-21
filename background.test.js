@@ -128,7 +128,7 @@ describe('dedupeTabs', () => {
     expect(result).toEqual(tabs);
   });
 
-  it("sélectionne l'onglet original si l'onglet actif fermé était un doublon", async () => {
+  it("sélectionne l'onglet original AVANT de fermer le doublon actif, pour éviter toute course avec la réassignation native de Chrome", async () => {
     const { dedupeTabs } = await loadBackground();
     const tabs = [
       makeTab({ id: 1, url: 'https://github.com/a' }),
@@ -137,8 +137,11 @@ describe('dedupeTabs', () => {
 
     await dedupeTabs(tabs);
 
-    expect(chromeMock.tabs.remove).toHaveBeenCalledWith([2]);
     expect(chromeMock.tabs.update).toHaveBeenCalledWith(1, { active: true });
+    expect(chromeMock.tabs.remove).toHaveBeenCalledWith([2]);
+    const updateOrder = chromeMock.tabs.update.mock.invocationCallOrder[0];
+    const removeOrder = chromeMock.tabs.remove.mock.invocationCallOrder[0];
+    expect(updateOrder).toBeLessThan(removeOrder);
   });
 
   it("ne change pas la sélection si l'onglet actif n'est pas un doublon", async () => {
@@ -152,6 +155,47 @@ describe('dedupeTabs', () => {
     await dedupeTabs(tabs);
 
     expect(chromeMock.tabs.remove).toHaveBeenCalledWith([3]);
+    expect(chromeMock.tabs.update).not.toHaveBeenCalled();
+  });
+
+  it("sélectionne l'original si le doublon fermé vient d'être créé, même s'il n'est pas actif (favori ouvert en arrière-plan)", async () => {
+    const { dedupeTabs } = await loadBackground();
+    const tabs = [
+      makeTab({ id: 1, url: 'https://github.com/a', active: true }),
+      makeTab({ id: 2, url: 'https://github.com/b' }),
+      makeTab({ id: 3, url: 'https://github.com/b' }),
+    ];
+
+    await dedupeTabs(tabs, new Set([3]));
+
+    expect(chromeMock.tabs.remove).toHaveBeenCalledWith([3]);
+    expect(chromeMock.tabs.update).toHaveBeenCalledWith(2, { active: true });
+  });
+
+  it("sélectionne l'original nouvellement créé lui-même s'il devient le survivant du groupe", async () => {
+    const { dedupeTabs } = await loadBackground();
+    const tabs = [
+      makeTab({ id: 1, url: 'https://github.com/b', active: true }),
+      makeTab({ id: 2, url: 'https://github.com/a' }),
+      makeTab({ id: 3, url: 'https://github.com/a' }),
+    ];
+
+    await dedupeTabs(tabs, new Set([2]));
+
+    expect(chromeMock.tabs.remove).toHaveBeenCalledWith([3]);
+    expect(chromeMock.tabs.update).toHaveBeenCalledWith(2, { active: true });
+  });
+
+  it("ne sélectionne rien pour un groupe de doublons anciens, sans lien avec la création en cours", async () => {
+    const { dedupeTabs } = await loadBackground();
+    const tabs = [
+      makeTab({ id: 1, url: 'https://github.com/a' }),
+      makeTab({ id: 2, url: 'https://github.com/a' }),
+    ];
+
+    await dedupeTabs(tabs, new Set([99]));
+
+    expect(chromeMock.tabs.remove).toHaveBeenCalledWith([2]);
     expect(chromeMock.tabs.update).not.toHaveBeenCalled();
   });
 });
@@ -173,7 +217,6 @@ describe('sortWindow', () => {
     expect(chromeMock.tabs.remove).toHaveBeenCalledWith([2]);
     expect(chromeMock.tabs.group).toHaveBeenCalledWith(expect.objectContaining({ tabIds: [1, 3] }));
   });
-
 
   it('regroupe les onglets de même domaine et laisse les singles hors groupe', async () => {
     const { sortWindow } = await loadBackground();
@@ -449,4 +492,66 @@ describe('runSort (garde de réentrance)', () => {
     await new Promise((resolve) => setTimeout(resolve, 600));
     expect(callCount).toBe(2);
   }, 2000);
+});
+
+describe('onCreated → réactivation des doublons ouverts en arrière-plan', () => {
+  it("remonte jusqu'à dedupeTabs les onglets créés depuis le dernier tri (ex. favori ouvert en arrière-plan via Cmd+clic)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { runSort } = await loadBackground();
+      chromeMock.windows.getAll.mockResolvedValue([
+        {
+          id: 1,
+          tabs: [
+            makeTab({ id: 1, url: 'https://github.com/a', active: true }),
+            makeTab({ id: 2, url: 'https://github.com/b' }),
+            makeTab({ id: 3, url: 'https://github.com/b' }),
+          ],
+        },
+      ]);
+
+      const onCreatedHandler = chromeMock.tabs.onCreated.addListener.mock.calls[0][0];
+      onCreatedHandler({ id: 3 });
+
+      await runSort();
+
+      expect(chromeMock.tabs.remove).toHaveBeenCalledWith([3]);
+      expect(chromeMock.tabs.update).toHaveBeenCalledWith(2, { active: true });
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('onCreated → focus sur tout nouvel onglet', () => {
+  it("active immédiatement un onglet créé en arrière-plan (ex. Cmd+clic sur un favori)", async () => {
+    vi.useFakeTimers();
+    try {
+      await loadBackground();
+      const onCreatedHandler = chromeMock.tabs.onCreated.addListener.mock.calls[0][0];
+
+      onCreatedHandler({ id: 42, active: false });
+
+      expect(chromeMock.tabs.update).toHaveBeenCalledWith(42, { active: true });
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it("ne fait rien si l'onglet créé est déjà actif", async () => {
+    vi.useFakeTimers();
+    try {
+      await loadBackground();
+      const onCreatedHandler = chromeMock.tabs.onCreated.addListener.mock.calls[0][0];
+
+      onCreatedHandler({ id: 42, active: true });
+
+      expect(chromeMock.tabs.update).not.toHaveBeenCalled();
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
 });
