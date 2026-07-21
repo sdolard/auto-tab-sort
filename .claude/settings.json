@@ -1,0 +1,7 @@
+{
+  "statusLine": {
+    "type": "command",
+    "command": "/Users/sdolard/Dev/auto-tab-sort/.claude/statusline.sh",
+    "padding": 2
+  }
+}
