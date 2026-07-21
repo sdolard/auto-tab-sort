@@ -3,8 +3,10 @@
   "name": "Auto Tab Sort",
   "version": "1.0.0",
   "description": "Regroupe et trie automatiquement les onglets par domaine, avec des groupes colorés.",
-  "permissions": ["tabs", "tabGroups"],
+  "permissions": ["tabs", "tabGroups", "storage"],
   "background": {
-    "service_worker": "background.js"
-  }
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {}
 }
