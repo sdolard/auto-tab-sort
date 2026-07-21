@@ -1,0 +1,14 @@
+{
+  "extName": {
+    "message": "Auto Tab Sort",
+    "description": "Extension name shown in chrome://extensions and the Chrome Web Store."
+  },
+  "extDescription": {
+    "message": "Automatically groups and sorts tabs by domain, with colored tab groups.",
+    "description": "Extension description shown in chrome://extensions and the Chrome Web Store."
+  },
+  "actionTitle": {
+    "message": "Sort tabs now",
+    "description": "Tooltip on the toolbar icon."
+  }
+}

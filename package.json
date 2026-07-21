@@ -4,9 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "package": "rm -rf dist && mkdir dist && zip -r dist/auto-tab-sort.zip manifest.json background.js icons _locales -x '*.DS_Store' -x '*.svg'"
   },
   "devDependencies": {
+    "chrome-webstore-upload-cli": "^4.0.1",
     "vitest": "^3.0.0"
   }
 }

@@ -1,0 +1,14 @@
+{
+  "extName": {
+    "message": "Auto Tab Sort",
+    "description": "Nom de l'extension affiché dans chrome://extensions et le Chrome Web Store."
+  },
+  "extDescription": {
+    "message": "Regroupe et trie automatiquement les onglets par domaine, avec des groupes colorés.",
+    "description": "Description de l'extension affichée dans chrome://extensions et le Chrome Web Store."
+  },
+  "actionTitle": {
+    "message": "Trier les onglets maintenant",
+    "description": "Infobulle sur l'icône de la barre d'outils."
+  }
+}
