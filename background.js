@@ -16,6 +16,51 @@ export function getDomain(url) {
   }
 }
 
+export function findDuplicateGroups(tabs) {
+  const byUrl = new Map();
+  for (const tab of tabs) {
+    const url = tab.pendingUrl || tab.url;
+    if (!url) continue;
+    if (!byUrl.has(url)) byUrl.set(url, []);
+    byUrl.get(url).push(tab);
+  }
+  return [...byUrl.values()].filter((group) => group.length > 1);
+}
+
+// Le premier onglet rencontré pour une URL (l'ordre de `win.tabs`, donc l'ordre réel des
+// onglets) est conservé comme original ; les autres sont fermés comme doublons.
+export async function dedupeTabs(tabs) {
+  const closedIds = new Set();
+  let reactivate = null;
+
+  for (const group of findDuplicateGroups(tabs)) {
+    const [original, ...duplicates] = group;
+    for (const tab of duplicates) {
+      closedIds.add(tab.id);
+      if (tab.active) reactivate = original.id;
+    }
+  }
+
+  if (closedIds.size === 0) return tabs;
+
+  try {
+    await chrome.tabs.remove([...closedIds]);
+  } catch (err) {
+    console.warn('auto-tab-sort: failed to close duplicate tabs', err);
+    return tabs;
+  }
+
+  if (reactivate !== null) {
+    try {
+      await chrome.tabs.update(reactivate, { active: true });
+    } catch (err) {
+      console.warn('auto-tab-sort: failed to focus the deduplicated tab', err);
+    }
+  }
+
+  return tabs.filter((t) => !closedIds.has(t.id));
+}
+
 let sortTimeout = null;
 let isSorting = false;
 let sortAgain = false;
@@ -98,11 +143,12 @@ export async function sortWindow(win) {
   const pinnedCount = allTabs.filter((t) => t.pinned).length;
   // Onglets déjà dans un groupe que l'extension n'a pas créé : on n'y touche pas,
   // comme pour les onglets épinglés, afin de ne jamais démanteler un groupe manuel.
-  const tabs = allTabs.filter((t) => {
+  const eligibleTabs = allTabs.filter((t) => {
     if (t.pinned) return false;
     if (t.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE && !knownGroupIds.has(t.groupId)) return false;
     return true;
   });
+  const tabs = await dedupeTabs(eligibleTabs);
 
   const byDomain = new Map();
   const singles = [];

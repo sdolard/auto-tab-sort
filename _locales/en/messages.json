@@ -4,7 +4,7 @@
     "description": "Extension name shown in chrome://extensions and the Chrome Web Store."
   },
   "extDescription": {
-    "message": "Automatically groups and sorts tabs by domain, with colored tab groups.",
+    "message": "Automatically groups and sorts tabs by domain into colored tab groups, and closes duplicate tabs.",
     "description": "Extension description shown in chrome://extensions and the Chrome Web Store."
   },
   "actionTitle": {

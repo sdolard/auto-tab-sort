@@ -26,6 +26,8 @@ function createMockChrome() {
       }),
       ungroup: vi.fn(async () => {}),
       move: vi.fn(async () => {}),
+      remove: vi.fn(async () => {}),
+      update: vi.fn(async () => {}),
       onCreated: { addListener: vi.fn() },
       onRemoved: { addListener: vi.fn() },
       onAttached: { addListener: vi.fn() },
@@ -100,7 +102,79 @@ describe('colorForDomain', () => {
   });
 });
 
+describe('dedupeTabs', () => {
+  it('ferme les onglets en double et garde le premier de chaque URL', async () => {
+    const { dedupeTabs } = await loadBackground();
+    const tabs = [
+      makeTab({ id: 1, url: 'https://github.com/a' }),
+      makeTab({ id: 2, url: 'https://github.com/a' }),
+      makeTab({ id: 3, url: 'https://github.com/b' }),
+    ];
+
+    const result = await dedupeTabs(tabs);
+
+    expect(chromeMock.tabs.remove).toHaveBeenCalledWith([2]);
+    expect(result.map((t) => t.id)).toEqual([1, 3]);
+  });
+
+  it("ne fait rien s'il n'y a pas de doublon", async () => {
+    const { dedupeTabs } = await loadBackground();
+    const tabs = [makeTab({ id: 1, url: 'https://github.com/a' }), makeTab({ id: 2, url: 'https://github.com/b' })];
+
+    const result = await dedupeTabs(tabs);
+
+    expect(chromeMock.tabs.remove).not.toHaveBeenCalled();
+    expect(chromeMock.tabs.update).not.toHaveBeenCalled();
+    expect(result).toEqual(tabs);
+  });
+
+  it("sélectionne l'onglet original si l'onglet actif fermé était un doublon", async () => {
+    const { dedupeTabs } = await loadBackground();
+    const tabs = [
+      makeTab({ id: 1, url: 'https://github.com/a' }),
+      makeTab({ id: 2, url: 'https://github.com/a', active: true }),
+    ];
+
+    await dedupeTabs(tabs);
+
+    expect(chromeMock.tabs.remove).toHaveBeenCalledWith([2]);
+    expect(chromeMock.tabs.update).toHaveBeenCalledWith(1, { active: true });
+  });
+
+  it("ne change pas la sélection si l'onglet actif n'est pas un doublon", async () => {
+    const { dedupeTabs } = await loadBackground();
+    const tabs = [
+      makeTab({ id: 1, url: 'https://github.com/a', active: true }),
+      makeTab({ id: 2, url: 'https://github.com/b' }),
+      makeTab({ id: 3, url: 'https://github.com/b' }),
+    ];
+
+    await dedupeTabs(tabs);
+
+    expect(chromeMock.tabs.remove).toHaveBeenCalledWith([3]);
+    expect(chromeMock.tabs.update).not.toHaveBeenCalled();
+  });
+});
+
 describe('sortWindow', () => {
+  it('déduplique avant de regrouper par domaine', async () => {
+    const { sortWindow } = await loadBackground();
+    const win = {
+      id: 1,
+      tabs: [
+        makeTab({ id: 1, url: 'https://github.com/a' }),
+        makeTab({ id: 2, url: 'https://github.com/a' }),
+        makeTab({ id: 3, url: 'https://github.com/b' }),
+      ],
+    };
+
+    await sortWindow(win);
+
+    expect(chromeMock.tabs.remove).toHaveBeenCalledWith([2]);
+    expect(chromeMock.tabs.group).toHaveBeenCalledWith(expect.objectContaining({ tabIds: [1, 3] }));
+  });
+
+
   it('regroupe les onglets de même domaine et laisse les singles hors groupe', async () => {
     const { sortWindow } = await loadBackground();
     const win = {

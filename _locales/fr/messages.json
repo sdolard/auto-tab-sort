@@ -4,7 +4,7 @@
     "description": "Nom de l'extension affiché dans chrome://extensions et le Chrome Web Store."
   },
   "extDescription": {
-    "message": "Regroupe et trie automatiquement les onglets par domaine, avec des groupes colorés.",
+    "message": "Regroupe et trie automatiquement les onglets par domaine dans des groupes colorés, et ferme les onglets en double.",
     "description": "Description de l'extension affichée dans chrome://extensions et le Chrome Web Store."
   },
   "actionTitle": {
