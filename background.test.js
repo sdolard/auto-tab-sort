@@ -195,6 +195,52 @@ describe('sortWindow', () => {
     expect(chromeMock.tabs.group).toHaveBeenCalledWith(expect.objectContaining({ tabIds: [3, 4] }));
   });
 
+  it('fusionne des groupes dupliqués du même domaine retrouvés par titre+couleur (suivi de session perdu)', async () => {
+    const { sortWindow, colorForDomain } = await loadBackground();
+    const color = colorForDomain('github.com');
+    chromeMock.__groups.push({ id: 10, windowId: 1, title: 'github.com', color });
+    chromeMock.__groups.push({ id: 20, windowId: 1, title: 'github.com', color });
+    // Pas d'entrée dans chrome.storage.session : on simule une extension ayant perdu le suivi.
+
+    const win = {
+      id: 1,
+      tabs: [
+        makeTab({ id: 1, url: 'https://github.com/a', groupId: 10 }),
+        makeTab({ id: 2, url: 'https://github.com/b', groupId: 20 }),
+        makeTab({ id: 3, url: 'https://github.com/c', groupId: 20 }),
+      ],
+    };
+
+    await sortWindow(win);
+
+    expect(chromeMock.tabs.group).toHaveBeenCalledTimes(1);
+    const call = chromeMock.tabs.group.mock.calls[0][0];
+    expect(call.tabIds).toEqual([1, 2, 3]);
+    expect([10, 20]).toContain(call.groupId);
+  });
+
+  it('ne fusionne pas un groupe dont la couleur ne correspond pas au hash du domaine (probable groupe manuel)', async () => {
+    const { sortWindow, colorForDomain, GROUP_COLORS } = await loadBackground();
+    const wrongColor = GROUP_COLORS.find((c) => c !== colorForDomain('github.com'));
+    chromeMock.__groups.push({ id: 10, windowId: 1, title: 'github.com', color: wrongColor });
+
+    const win = {
+      id: 1,
+      tabs: [
+        makeTab({ id: 1, url: 'https://github.com/a', groupId: 10 }),
+        makeTab({ id: 2, url: 'https://github.com/b', groupId: 10 }),
+        makeTab({ id: 3, url: 'https://github.com/x' }),
+        makeTab({ id: 4, url: 'https://github.com/y' }),
+      ],
+    };
+
+    await sortWindow(win);
+
+    expect(chromeMock.tabs.move).not.toHaveBeenCalledWith(1, expect.anything());
+    expect(chromeMock.tabs.move).not.toHaveBeenCalledWith(2, expect.anything());
+    expect(chromeMock.tabs.group).toHaveBeenCalledWith(expect.objectContaining({ tabIds: [3, 4] }));
+  });
+
   it('réutilise un groupe de domaine déjà géré au lieu d\'en créer un doublon', async () => {
     const { sortWindow } = await loadBackground();
     chromeMock.__groups.push({ id: 5, windowId: 1 });

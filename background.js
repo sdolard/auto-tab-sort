@@ -72,7 +72,27 @@ export async function sortWindow(win) {
   for (const domain of Object.keys(managedGroups)) {
     if (!existingGroupIds.has(managedGroups[domain])) delete managedGroups[domain];
   }
-  const knownGroupIds = new Set(Object.values(managedGroups));
+
+  // Groupes déjà présents dont le titre et la couleur correspondent exactement à ce que
+  // l'extension aurait produit pour ce domaine : on les considère comme les nôtres, même
+  // si on en a perdu la trace (le stockage de session est vidé à la fermeture du
+  // navigateur). Ça fusionne aussi les doublons déjà créés pendant cette perte de suivi.
+  const groupRedirect = new Map();
+  const groupsByRecognizedTitle = new Map();
+  for (const group of existingGroups) {
+    if (!group.title || group.color !== colorForDomain(group.title)) continue;
+    if (!groupsByRecognizedTitle.has(group.title)) groupsByRecognizedTitle.set(group.title, []);
+    groupsByRecognizedTitle.get(group.title).push(group.id);
+  }
+  for (const [domain, ids] of groupsByRecognizedTitle) {
+    const canonical = ids.includes(managedGroups[domain]) ? managedGroups[domain] : ids[0];
+    managedGroups[domain] = canonical;
+    for (const id of ids) {
+      if (id !== canonical) groupRedirect.set(id, canonical);
+    }
+  }
+
+  const knownGroupIds = new Set([...Object.values(managedGroups), ...groupRedirect.keys()]);
 
   const allTabs = win.tabs;
   const pinnedCount = allTabs.filter((t) => t.pinned).length;
