@@ -34,8 +34,17 @@ jobs:
 
       - run: npm run package
 
+      - name: Check whether Chrome Web Store secrets are configured
+        id: cws
+        run: |
+          if [ -n "${{ secrets.CWS_EXTENSION_ID }}" ] && [ -n "${{ secrets.CWS_CLIENT_ID }}" ] && [ -n "${{ secrets.CWS_CLIENT_SECRET }}" ] && [ -n "${{ secrets.CWS_REFRESH_TOKEN }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload and publish to the Chrome Web Store
-        if: ${{ secrets.CWS_EXTENSION_ID != '' && secrets.CWS_CLIENT_ID != '' && secrets.CWS_CLIENT_SECRET != '' && secrets.CWS_REFRESH_TOKEN != '' }}
+        if: steps.cws.outputs.configured == 'true'
         env:
           EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
           CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
@@ -45,7 +54,7 @@ jobs:
         run: npx chrome-webstore-upload-cli --source dist/auto-tab-sort.zip
 
       - name: Skip Chrome Web Store upload (secrets not configured)
-        if: ${{ !(secrets.CWS_EXTENSION_ID != '' && secrets.CWS_CLIENT_ID != '' && secrets.CWS_CLIENT_SECRET != '' && secrets.CWS_REFRESH_TOKEN != '') }}
+        if: steps.cws.outputs.configured != 'true'
         run: |
           echo "CWS_EXTENSION_ID/CLIENT_ID/CLIENT_SECRET/REFRESH_TOKEN secrets are not set — skipping the Chrome Web Store upload."
           echo "Publish this version manually via the Developer Dashboard, or configure the secrets (see README) to automate it."
